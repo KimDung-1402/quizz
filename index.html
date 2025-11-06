@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quiz Processor — Paste / Read / Convert → JSON & Quiz</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+  <style>
+    #pasteArea img {
+      max-width: 100% !important;
+      max-height: 250px !important; /* chỉnh chiều cao theo ý bạn */
+      height: auto !important;
+      object-fit: contain;
+      display: block;
+      margin: 8px auto;
+    }
+
+    .choice strong,
+    .choice span {
+      display: inline;
+    }
+    .choice {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    :root { --bg:#f5f7fb; --card:#ffffff; --muted:#6b7280; --accent:#0f62fe; --success:#10b981; --danger:#ef4444 }
+    * { box-sizing:border-box }
+    body { font-family:Inter,system-ui,Segoe UI,Roboto,Arial; line-height:1.45; margin:0; background:linear-gradient(180deg,var(--bg),#eef3fb); color:#0f172a }
+    .wrap { max-width:1100px; margin:24px auto; padding:18px }
+    header { display:flex; gap:12px; align-items:center; margin-bottom:12px }
+    h1 { font-size:18px; margin:0 }
+    p.lead { margin:0; color:var(--muted); font-size:13px }
+
+    .grid { display:grid; grid-template-columns:1fr 360px; gap:16px; width: 100%; display: flex; flex-direction: column; }
+    @media(max-width:980px) { .grid { grid-template-columns:1fr } .right-col { order:2 } }
+
+    .card { background:var(--card); border-radius:12px; padding:14px; box-shadow:0 6px 18px rgba(12,20,40,0.06); width:100%; flex:1 }
+    label { display:block; font-weight:600; margin-bottom:6px; font-size:13px }
+
+    #pasteArea { height:300px; border:2px dashed #dbe6fb; border-radius:8px; padding:12px; overflow:auto }
+    #pasteArea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 4px rgba(15,98,254,0.08) }
+
+    .controls { display:flex; gap:8px; flex-wrap:wrap }
+    button { cursor:pointer; border:0; padding:8px 12px; border-radius:8px; background:var(--accent); color:white; font-weight:600 }
+    button.ghost { background:transparent; color:var(--accent); border:1px solid rgba(15,98,254,0.12) }
+    button.warn { background:var(--danger) }
+
+    .small { font-size:13px }
+    textarea#answers { width:100%; height:80px; padding:8px; border-radius:8px; border:1px solid #e6eefc }
+
+    .meta { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .status { font-size:13px; color:var(--muted) }
+
+    pre#jsonOut { background:#0b1220; color:#dbeafe; padding:12px; border-radius:8px; overflow:auto; max-height:260px }
+
+    .quiz-area { min-height:200px }
+    .question-card { padding:12px; border-radius:10px; border:1px solid #eef3fb; background:linear-gradient(180deg,#fff,#fbfdff) }
+    .choices { display:flex; flex-direction:column; gap:4px; margin-top:4px }
+    .choice { padding:10px; border-radius:8px; border:1px solid #e6eefc; cursor:pointer }
+    .choice.correct { outline:3px solid rgba(16,185,129,0.18); border-color:var(--success) }
+    .choice.wrong { outline:3px solid rgba(239,68,68,0.12); border-color:var(--danger) }
+
+    .share { display:flex; gap:8px; align-items:center }
+    input[type=file] { display:none }
+    .footer-note { font-size:13px; color:var(--muted); margin-top:8px }
+
+    #pasteArea img { max-width:100%; height:auto; border-radius:6px; display:block; margin:6px 0 }
+    .fullscreen-quiz .grid {
+      grid-template-columns: 1fr !important;
+    }
+    .fullscreen-quiz .grid > :not(.right-col) {
+      display: none;
+    }
+    .fullscreen-quiz .right-col {
+      order: 1;
+      width: 100%;
+    }
+    .fullscreen-quiz .right-col .card {
+      height: fit-content;
+      display: flex;
+      flex-direction: column;
+    }
+    .fullscreen-quiz .quiz-area {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .right-col {
+      display: none;
+    }
+    #preview img {
+      max-width: 100% !important;
+      max-height: 250px !important; /* hoặc chiều cao bạn muốn */
+      height: auto !important;
+      object-fit: contain;
+      display: block;
+      margin: 8px auto;
+    }
+
+    .question-card > div:first-child {
+      align-items: flex-start;
+    }
+    .question-card > div:first-child span {
+      display: inline; /* đảm bảo hiển thị cạnh số thứ tự */
+    }
+
+    .result-summary {
+      padding:12px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .result-stats {
+      display:flex;
+      gap:16px;
+      font-size:14px;
+    }
+
+    .result-stats .correct-count { color:#10b981; font-weight:600; }
+    .result-stats .wrong-count { color:#ef4444; font-weight:600; }
+
+    .result-lists {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .result-list {
+      background:#f8f9fc;
+      border-radius:10px;
+      padding:10px;
+      border:1px solid #e2e8f0;
+      max-height:200px;
+      overflow-y:auto;
+    }
+
+    .result-list h4 {
+      margin:0 0 6px 0;
+      font-size:14px;
+      color:#334155;
+    }
+
+    .result-item {
+      padding:6px 8px;
+      margin-bottom:4px;
+      border-radius:6px;
+      font-size:13px;
+      line-height:1.3;
+    }
+
+    .result-item.correct {
+      background:rgba(16,185,129,0.15);
+      border-left:3px solid #10b981;
+    }
+
+    .result-item.wrong {
+      background:rgba(239,68,68,0.12);
+      border-left:3px solid #ef4444;
+    }
+
+    .result-actions {
+      display:flex;
+      gap:8px;
+      margin-top:6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Quiz Processor</h1>
+        <p class="lead">Dán (Ctrl+V) hoặc chọn file để nhập nội dung có thể kèm hình ảnh. Xử lý thành JSON và chuyển sang chế độ làm bài (quiz).</p>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <label>Nội dung (paste hỗ trợ văn bản + hình ảnh)</label>
+          <div id="pasteArea" contenteditable="true" spellcheck="false" aria-label="Khu vực dán văn bản và hình ảnh">Nhập hoặc dán (Ctrl+V) nội dung vào đây. Hỗ trợ paste hình ảnh từ clipboard (Ctrl+V hình).</div>
+          <div style="height:10px"></div>
+
+          <div class="meta">
+            <div class="controls">
+              <label class="ghost" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;padding:6px 10px;border-radius:8px;border:1px dashed rgba(15,98,254,0.12)">
+                <input id="fileInput" type="file" accept=".doc,.docx,text/*,application/*,image/*,.html,.htm,.md,.json" />
+                <span style="color:var(--accent);font-weight:700">Chọn file</span>
+              </label>
+              <button id="processBtn">Xử lý → JSON</button>
+              <button class="ghost" id="previewJSONBtn">Xem JSON</button>
+              <button id="startQuizBtn">Làm bài</button>
+              <button id="shareQuizBtn" class="ghost">Chia sẻ</button>
+              <div style="display:flex;gap:12px;align-items:center;margin-top:6px">
+                <label><input type="checkbox" id="shuffleQuestions"> Trộn câu hỏi</label>
+                <label><input type="checkbox" id="shuffleChoices"> Trộn đáp án</label>
+              </div>
+              <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="autoDetectCorrect" checked/>
+                <span>Tự nhận diện đáp án đúng (bắt đầu bằng **)</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="height:12px"></div>
+
+          <label>Danh sách đáp án (ví dụ: 1a,2b,3c,...)</label>
+          <textarea id="answers" placeholder="Nhập danh sách đáp án ở dạng: 1a,2b,3c,...">1a,2a,3a,4a,5a</textarea>
+
+          <!-- PHẦN JSON bị ẩn mặc định -->
+          <div id="jsonSection" style="display:none; margin-top:14px">
+            <div style="display:flex;gap:8px;align-items:center">
+              <button id="validateBtn" class="ghost">Kiểm tra nhận diện</button>
+              <button id="downloadJsonBtn">Tải JSON</button>
+            </div>
+            <div style="height:12px"></div>
+            <label>JSON (kết quả xử lý)</label>
+            <pre id="jsonOut">Chưa xử lý</pre>
+            <div class="footer-note">Gợi ý: nếu paste từ Word/HTML, script cố gắng tách câu theo các block bắt đầu bằng <code>ID:</code> hoặc số thứ tự. Bạn có thể chỉnh tay nếu cần.</div>
+          </div>
+        </div>
+
+        <div style="height:14px"></div>
+
+        <div class="card">
+          <label>Log / Thông báo</label>
+          <div id="log" style="min-height:60px;color:var(--muted);font-size:13px">Sẵn sàng.</div>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="card">
+          <label>Preview / Quiz</label>
+          <div id="preview" class="quiz-area">
+            <div style="color:var(--muted);font-size:13px">Chưa có dữ liệu.</div>
+          </div>
+
+          <div style="height:12px"></div>
+          <div style="display:flex;justify-content:center;">
+            <div class="status" id="quizStatus">0 câu</div>
+          </div>
+
+          <div style="height:10px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const el = (s) => document.querySelector(s);
+const pasteArea = el('#pasteArea');
+const fileInput = el('#fileInput');
+const processBtn = el('#processBtn');
+const jsonOut = el('#jsonOut');
+const answersInput = el('#answers');
+const logEl = el('#log');
+const preview = el('#preview');
+const startQuizBtn = el('#startQuizBtn');
+const downloadJsonBtn = el('#downloadJsonBtn');
+const validateBtn = el('#validateBtn');
+const previewJSONBtn = el('#previewJSONBtn');
+const quizStatus = el('#quizStatus');
+const shareQuizBtn = el('#shareQuizBtn');
+const jsonSection = el('#jsonSection');
+
+let parsed = [];
+let currentIndex = 0;
+let userAnswers = {};
+let autoAdvanceMs = 900;
+
+function log(msg) { logEl.textContent = msg; }
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ✅ HÀM CHIA SẺ MỚI
+shareQuizBtn.addEventListener('click', () => {
+  if (parsed.length === 0) { alert('Chưa có quiz để chia sẻ!'); return; }
+  const json = JSON.stringify(parsed);
+  const encoded = btoa(unescape(encodeURIComponent(json)));
+  const link = `${location.origin}${location.pathname}?d=${encoded}`;
+  navigator.clipboard.writeText(link)
+    .then(() => log('✅ Đã sao chép link chia sẻ!'))
+    .catch(err => log('❌ Lỗi copy link: ' + err));
+});
+
+// ✅ KHI NGƯỜI KHÁC MỞ LINK
+window.addEventListener('load', () => {
+  const params = new URLSearchParams(location.search);
+  const encoded = params.get('d');
+  if (encoded) {
+    try {
+      const decoded = decodeURIComponent(escape(atob(encoded)));
+      parsed = JSON.parse(decoded);
+      document.querySelector('.right-col').style.display = 'block';
+      document.body.classList.add('fullscreen-quiz');
+      currentIndex = 0;
+      userAnswers = {};
+      renderQuestion(currentIndex);
+      log('📦 Đã tải quiz từ link chia sẻ.');
+    } catch (e) {
+      console.error('❌ Lỗi giải mã quiz', e);
+    }
+  }
+});
+// Utility
+function log(msg) {
+  logEl.textContent = msg;
+}
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+shareQuizBtn.addEventListener('click', () => {
+  if (parsed.length === 0) { alert('Chưa có quiz để chia sẻ!'); return; }
+  const data = encodeURIComponent(JSON.stringify(parsed));
+  const link = window.location.origin + window.location.pathname + '?quiz=' + data;
+  navigator.clipboard.writeText(link)
+    .then(() => log('Liên kết quiz đã được copy vào clipboard!'))
+    .catch(err => log('Lỗi copy link: ' + err));
+});
+
+// Paste handling
+pasteArea.addEventListener('paste', async (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.type.startsWith('image/')) {
+      const file = it.getAsFile();
+      const data = await fileToDataURL(file);
+      insertHTMLAtCursor(`<img src="${data}" alt="pasted-image" />`);
+      e.preventDefault();
+    }
+  }
+});
+
+function fileToDataURL(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+}
+
+function insertHTMLAtCursor(html) {
+  const sel = window.getSelection();
+  if (!sel || !sel.getRangeAt || sel.rangeCount === 0) {
+    pasteArea.insertAdjacentHTML('beforeend', html);
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const frag = range.createContextualFragment(html);
+  range.insertNode(frag);
+}
+
+// File input
+fileInput.addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  
+  if (f.type.startsWith('image/')) {
+    const data = await fileToDataURL(f);
+    pasteArea.innerHTML = `<img src="${data}" alt="file-image" />` + pasteArea.innerHTML;
+    log('Đã chèn ảnh từ file.');
+    return;
+  }
+
+  if (f.name.endsWith('.docx')) {
+    const reader = new FileReader();
+    reader.onload = function (evt) {
+      mammoth
+        .convertToHtml({ arrayBuffer: evt.target.result })
+        .then(function (result) {
+          // Bỏ thẻ <h2> nhưng giữ lại nội dung bên trong
+          const cleanedHtml = result.value.replace(/<\/?h2[^>]*>/g, '');
+          pasteArea.innerHTML = cleanedHtml;
+          log('Đã đọc file Word: ' + f.name);
+        })
+        .catch((err) => log('Lỗi đọc Word: ' + err.message));
+    };
+    reader.readAsArrayBuffer(f);
+    return;
+  }
+
+  const fr = new FileReader();
+  fr.onload = () => {
+    if (f.name.endsWith('.html') || f.type === 'text/html') {
+      // Bỏ thẻ <h2> nhưng giữ lại nội dung bên trong
+      const cleanedHtml = fr.result.replace(/<\/?h2[^>]*>/g, '');
+      pasteArea.innerHTML = cleanedHtml;
+    } else {
+      pasteArea.textContent = fr.result; // Giữ nguyên văn bản
+    }
+    log('Đã đọc file: ' + f.name);
+  };
+  fr.readAsText(f);
+});
+
+// Parse content
+function parseContent(rawHtml) {
+  const container = document.createElement('div');
+  container.innerHTML = rawHtml || '';
+  const lines = [];
+  container.childNodes.forEach((node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.outerHTML.trim()) lines.push(node.outerHTML.trim());
+    } else if (node.nodeType === Node.TEXT_NODE) {
+      const t = node.textContent.trim();
+      if (t) lines.push(t);
+    }
+  });
+
+  const items = [];
+  let current = null;
+  const choiceRegex = /^\**\s*([A-D])\.?\s*/i;
+  const idRegex = /ID:\s*(\d+)/i;
+
+  for (let ln of lines) {
+    const cleanTxt = ln.replace(/<[^>]+>/g, '').trim();
+    const idMatch = cleanTxt.match(idRegex);
+    if (idMatch) {
+      if (current) items.push(current);
+      current = { rawId: idMatch[1], question: '', choices: [] };
+      continue;
+    }
+    if (!current && !idMatch) current = { question: '', choices: [] };
+    const choiceMatch = cleanTxt.match(choiceRegex);
+    if (choiceMatch) {
+      const key = choiceMatch[1].toLowerCase();
+      const cleanText = cleanTxt.replace(choiceRegex, '').trim();
+      current.choices.push({ key, text: cleanText });
+    } else {
+      const cleanLn = ln.replace(/^\s*<p>\s*\d+[\.:,)]\s*/, '<p>').replace(/^\s*\d+[\.:,)]\s*/, '');
+      current.question += (current.question ? '<br>' : '') + cleanLn;
+    }
+  }
+  if (current) items.push(current);
+  return items.map((it, i) => ({
+    id: i + 1,
+    rawId: it.rawId || null,
+    question: it.question,
+    choices: it.choices,
+  }));
+}
+
+// Parse answers
+function parseAnswers(txt) {
+  const pairs = txt.split(/[,;\n\s]+/).map((s) => s.trim()).filter(Boolean);
+  const map = [];
+  for (const p of pairs) {
+    const m = p.match(/(\d+)([a-d])/i);
+    if (m) {
+      const idx = parseInt(m[1], 10) - 1;
+      if (idx >= 0) map[idx] = m[2].toLowerCase();
+    }
+  }
+  return map;
+}
+
+// Process button
+processBtn.addEventListener('click', () => {
+  const html = pasteArea.innerHTML;
+  parsed = parseContent(html);
+
+  const autoDetect = document.getElementById('autoDetectCorrect').checked;
+  let ansMap = [];
+
+  if (autoDetect) {
+    parsed.forEach((q, i) => {
+      const found = q.choices.find(
+        (c) =>
+          /^\s*\*\*/.test(c.text.trim()) ||
+          /\*\*\s*$/.test(c.text.trim()) ||
+          c.text.includes('<strong>') ||
+          c.text.includes('<b>**')
+      );
+      if (found) {
+        q.correct = found.key; // ✅ Gắn trực tiếp vào object
+        found.text = found.text.replace(/\*\*/g, '').trim();
+      }
+    });
+  } else {
+    ansMap = parseAnswers(answersInput.value);
+    parsed.forEach((q, i) => {
+      q.correct = ansMap[i] || null; // ✅ Gắn trực tiếp vào object
+    });
+  }
+
+  jsonOut.textContent = JSON.stringify(parsed, null, 2);
+  log('Xử lý xong — ' + parsed.length + ' câu hỏi.');
+});
+
+// Toggle JSON preview
+previewJSONBtn.addEventListener('click', () => {
+  jsonSection.style.display =
+    jsonSection.style.display === 'none' ? 'block' : 'none';
+});
+
+// Validate
+validateBtn.addEventListener('click', () => {
+  if (parsed.length === 0) return alert('Chưa xử lý nội dung!');
+  const ansMap = parseAnswers(answersInput.value);
+  const issues = [];
+  parsed.forEach((p, i) => {
+    if (!p.question || p.question.length < 5) issues.push(`Câu ${i + 1}: câu hỏi ngắn`);
+    if (p.choices && p.choices.length > 0) {
+      const keys = p.choices.map((c) => c.key);
+      if (ansMap[i] && !keys.includes(ansMap[i]))
+        issues.push(`Câu ${i + 1}: đáp án ${ansMap[i]} không có trong lựa chọn`);
+    }
+  });
+  log(issues.length === 0 ? 'Không phát hiện lỗi lớn.' : issues.join('\n'));
+});
+
+// Download JSON
+downloadJsonBtn.addEventListener('click', () => {
+  if (jsonOut.textContent.trim() === '') return alert('Chưa có JSON');
+  const blob = new Blob([jsonOut.textContent], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'quiz.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// Start quiz
+startQuizBtn.addEventListener('click', () => {
+  // Xử lý nạp câu hỏi nếu chưa có
+  if (parsed.length === 0) processBtn.click();
+
+  const shuffleQs = document.getElementById('shuffleQuestions').checked;
+  const shuffleCs = document.getElementById('shuffleChoices').checked;
+  // Tạo bản sao câu hỏi để có thể trộn
+  let quizData = parsed.map(q => ({
+    ...q,
+    choices: shuffleCs ? shuffleArray([...q.choices]) : q.choices
+  }));
+  // Nếu chọn trộn câu hỏi thì dùng shuffleArray (Fisher-Yates) để trộn mảng
+  if (shuffleQs) quizData = shuffleArray(quizData);
+  // Cập nhật parsed thành mảng đã trộn để render sử dụng
+  parsed = quizData;
+  currentIndex = 0;
+  userAnswers = {};
+
+  document.querySelector('.right-col').style.display = 'block';
+  document.body.classList.add('fullscreen-quiz');
+  renderQuestion(currentIndex);
+});
+
+// Render question
+function renderQuestion(i) {
+  if (!parsed[i]) {
+    preview.innerHTML =
+      '<div style="color:var(--muted)">Hết câu. Nhấn "Làm lại" để làm lại.</div>';
+    return;
+  }
+  const p = parsed[i];
+  quizStatus.textContent = `${i + 1}/${parsed.length}`;
+
+  const choicesHtml = p.choices
+    .map(
+      (c) => `
+    <div class="choice" data-key="${c.key}">
+      <strong>${c.key.toUpperCase()}.</strong> ${c.text}
+    </div>`
+    )
+    .join('');
+
+  preview.innerHTML = `
+  <div class="question-card">
+    <div><strong>Câu ${i + 1}:</strong> ${p.question}</div>
+    <div class="choices">${choicesHtml}</div>
+  </div>`;
+
+  document.querySelectorAll('.choice').forEach((ch) => {
+    ch.addEventListener('click', () => handleChoiceSelect(ch));
+  });
+}
+
+// Handle answer
+function handleChoiceSelect(chEl) {
+  const key = chEl.dataset.key;
+  const idx = currentIndex;
+  const correct = parsed[idx].correct;
+
+  userAnswers[idx + 'selected'] = key;
+  document.querySelectorAll('.choice').forEach((c) => c.classList.remove('correct', 'wrong'));
+  if (key === correct) {
+    chEl.classList.add('correct');
+    userAnswers[idx] = true;
+  } else {
+    chEl.classList.add('wrong');
+    userAnswers[idx] = false;
+    const correctEl = Array.from(document.querySelectorAll('.choice')).find(
+      (c) => c.dataset.key === correct
+    );
+    if (correctEl) correctEl.classList.add('correct');
+  }
+
+  setTimeout(() => {
+    currentIndex++;
+    if (currentIndex < parsed.length) renderQuestion(currentIndex);
+    else showSummary();
+  }, autoAdvanceMs);
+}
+
+// Summary
+function showSummary() {
+  const total = parsed.length;
+  const correctList = [];
+  const wrongList = [];
+
+  parsed.forEach((q, i) => {
+    const isCorrect = userAnswers[i];
+    const questionHtml = q.question.replace(/<br\s*\/?>/gi, '<br>');
+    if (isCorrect) {
+      correctList.push(
+        `<div class="result-item correct"><strong>Câu ${i + 1}:</strong> ${questionHtml}</div>`
+      );
+    } else {
+      const userKey = userAnswers[i + 'selected'] || 'Chưa chọn';
+      const correctKey = q.correct || 'Chưa có';
+      const userChoice = q.choices.find((c) => c.key === userKey)?.text || '';
+      const correctChoice = q.choices.find((c) => c.key === correctKey)?.text || '';
+      wrongList.push(`
+        <div class="result-item wrong">
+          <strong>Câu ${i + 1}:</strong> ${questionHtml}<br>
+          <b>Chọn:</b> ${userKey.toUpperCase()} — ${userChoice}<br>
+          <b>Đúng:</b> ${correctKey.toUpperCase()} — ${correctChoice}
+        </div>`);
+    }
+  });
+
+  preview.innerHTML = `
+  <div class="result-summary">
+    <h3>Kết quả làm bài</h3>
+    <div class="result-stats">
+      <span class="correct-count">Đúng: ${correctList.length}</span>
+      <span class="wrong-count">Sai: ${wrongList.length}</span>
+      <span>Tổng: ${total}</span>
+    </div>
+
+    <div class="result-lists">
+      <div class="result-list">
+        <h4>✅ Câu đúng (${correctList.length})</h4>
+        ${correctList.join('')}
+      </div>
+      <div class="result-list">
+        <h4>❌ Câu sai (${wrongList.length})</h4>
+        ${wrongList.join('')}
+      </div>
+    </div>
+
+    <div class="result-actions">
+      <button id="retryBtn">Làm lại</button>
+      <button id="exitBtn" class="ghost">Quay lại trang chủ</button>
+    </div>
+  </div>`;
+
+  document.getElementById('retryBtn').addEventListener('click', () => {
+    currentIndex = 0;
+    userAnswers = {};
+    renderQuestion(0);
+  });
+  document.getElementById('exitBtn').addEventListener('click', () => {
+    document.body.classList.remove('fullscreen-quiz');
+    document.querySelector('.right-col').style.display = 'none';
+    preview.innerHTML = `<div style="color:var(--muted);font-size:13px">Chưa có dữ liệu.</div>`;
+  });
+}
+
+window.addEventListener('load', () => {
+  const params = new URLSearchParams(window.location.search);
+  const quizParam = params.get('quiz');
+  if (quizParam) {
+    try {
+      parsed = JSON.parse(decodeURIComponent(quizParam));
+      document.querySelector('.right-col').style.display = 'block';
+      document.body.classList.add('fullscreen-quiz');
+      currentIndex = 0;
+      userAnswers = {};
+      renderQuestion(currentIndex);
+    } catch (e) {
+      console.error('Invalid quiz data', e);
+    }
+  }
+
+
+
+});
+</script>
+
+</body>
+</html>
