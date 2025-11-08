@@ -440,6 +440,19 @@ return arr;
 
 }
 
+function stripHtml(html) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+
+    // Chỉ giữ lại thẻ <br> và <p>, loại bỏ các thẻ khác
+    const allowedTags = ['BR', 'P'];
+    const cleanedText = Array.from(tempDiv.childNodes)
+        .filter(node => allowedTags.includes(node.nodeName))
+        .map(node => node.outerHTML).join('');
+    
+    return cleanedText.replace(/<p>/g, '<p>').replace(/<\/p>/g, '<br>'); // Thay đổi thẻ <p> thành <br>
+}
+
 // ✅ HÀM CHIA SẺ MỚI
 
 shareQuizBtn.addEventListener('click', () => {
@@ -497,6 +510,67 @@ console.error('❌ Lỗi giải mã quiz', e);
 }
 
 });
+fileInput.addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+
+    if (!f) return;
+
+    // Xử lý trường hợp là hình ảnh
+    if (f.type.startsWith('image/')) {
+        const data = await fileToDataURL(f);
+        pasteArea.innerHTML = `<img src="${data}" alt="file-image" />` + pasteArea.innerHTML;
+        log('Đã chèn ảnh từ file.');
+        return;
+    }
+
+    // Xử lý file Word
+    if (f.name.endsWith('.docx')) {
+        const reader = new FileReader();
+        reader.onload = function (evt) {
+            mammoth.convertToHtml({ arrayBuffer: evt.target.result })
+                .then(function (result) {
+                    // Làm sạch HTML
+                    const cleanedHtml = stripHtml(result.value); // Sử dụng hàm stripHtml để loại bỏ thẻ không cần thiết
+                    pasteArea.innerHTML = cleanedHtml;
+                    log('Đã đọc file Word: ' + f.name);
+                })
+                .catch((err) => log('Lỗi đọc Word: ' + err.message));
+        };
+        reader.readAsArrayBuffer(f);
+        return;
+    }
+
+    // Xử lý file văn bản và HTML
+    const fr = new FileReader();
+    fr.onload = () => {
+        if (f.name.endsWith('.html') || f.type === 'text/html') {
+            // Làm sạch HTML
+            const cleanedHtml = stripHtml(fr.result); // Sử dụng hàm stripHtml để loại bỏ thẻ không cần thiết
+            pasteArea.innerHTML = cleanedHtml;
+        } else {
+            // Giữ nguyên văn bản
+            const cleanedText = stripHtml(fr.result); // Làm sạch văn bản
+            pasteArea.textContent = cleanedText;
+        }
+        log('Đã đọc file: ' + f.name);
+    };
+    fr.readAsText(f);
+});
+
+// Hàm loại bỏ thẻ HTML không cần thiết và ký tự &nbsp;
+function stripHtml(html) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+
+    // Chỉ giữ lại thẻ <br> và <p>, loại bỏ các thẻ khác
+    const allowedTags = ['BR', 'P'];
+    const cleanedText = Array.from(tempDiv.childNodes)
+        .filter(node => allowedTags.includes(node.nodeName))
+        .map(node => node.outerHTML).join('');
+
+    // Loại bỏ ký tự &nbsp;
+    return cleanedText.replace(/&nbsp;/g, '').replace(/<p>/g, '<p>').replace(/<\/p>/g, '<br>'); // Giữ thẻ <p> và thay thế bằng <br>
+}
 
 // Utility
 
@@ -539,27 +613,22 @@ navigator.clipboard.writeText(link)
 // Paste handling
 
 pasteArea.addEventListener('paste', async (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
 
-const items = e.clipboardData && e.clipboardData.items;
-
-if (!items) return;
-
-for (const it of items) {
-
-if (it.type.startsWith('image/')) {
-
-const file = it.getAsFile();
-
-const data = await fileToDataURL(file);
-
-insertHTMLAtCursor(`<img src="${data}" alt="pasted-image" />`);
-
-e.preventDefault();
-
-}
-
-}
-
+    for (const it of items) {
+        if (it.type.startsWith('image/')) {
+            const file = it.getAsFile();
+            const data = await fileToDataURL(file);
+            insertHTMLAtCursor(`<img src="${data}" alt="pasted-image" />`);
+            e.preventDefault();
+        } else if (it.type.startsWith('text/')) {
+            const text = await navigator.clipboard.readText();
+            const cleanText = stripHtml(text); // Làm sạch HTML
+            insertHTMLAtCursor(cleanText);
+            e.preventDefault();
+        }
+    }
 });
 
 function fileToDataURL(file) {
@@ -602,82 +671,7 @@ range.insertNode(frag);
 
 // File input
 
-fileInput.addEventListener('change', async (e) => {
 
-const f = e.target.files[0];
-
-if (!f) return;
-
-
-if (f.type.startsWith('image/')) {
-
-const data = await fileToDataURL(f);
-
-pasteArea.innerHTML = `<img src="${data}" alt="file-image" />` + pasteArea.innerHTML;
-
-log('Đã chèn ảnh từ file.');
-
-return;
-
-}
-
-if (f.name.endsWith('.docx')) {
-
-const reader = new FileReader();
-
-reader.onload = function (evt) {
-
-mammoth
-
-.convertToHtml({ arrayBuffer: evt.target.result })
-
-.then(function (result) {
-
-// Bỏ thẻ <h2> nhưng giữ lại nội dung bên trong
-
-const cleanedHtml = result.value.replace(/<\/?h2[^>]*>/g, '');
-
-pasteArea.innerHTML = cleanedHtml;
-
-log('Đã đọc file Word: ' + f.name);
-
-})
-
-.catch((err) => log('Lỗi đọc Word: ' + err.message));
-
-};
-
-reader.readAsArrayBuffer(f);
-
-return;
-
-}
-
-const fr = new FileReader();
-
-fr.onload = () => {
-
-if (f.name.endsWith('.html') || f.type === 'text/html') {
-
-// Bỏ thẻ <h2> nhưng giữ lại nội dung bên trong
-
-const cleanedHtml = fr.result.replace(/<\/?h2[^>]*>/g, '');
-
-pasteArea.innerHTML = cleanedHtml;
-
-} else {
-
-pasteArea.textContent = fr.result; // Giữ nguyên văn bản
-
-}
-
-log('Đã đọc file: ' + f.name);
-
-};
-
-fr.readAsText(f);
-
-});
 
 // Parse content
 
