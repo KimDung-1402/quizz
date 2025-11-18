@@ -1,3 +1,4 @@
+
 <!doctype html>
 
 <html lang="vi">
@@ -676,90 +677,55 @@ range.insertNode(frag);
 // Parse content
 
 function parseContent(rawHtml) {
+    const container = document.createElement('div');
+    container.innerHTML = rawHtml || '';
+    const lines = [];
+    container.childNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.outerHTML.trim()) lines.push(node.outerHTML.trim());
+        } else if (node.nodeType === Node.TEXT_NODE) {
+            const t = node.textContent.trim();
+            if (t) lines.push(t);
+        }
+    });
 
-const container = document.createElement('div');
+    const items = [];
+    let current = null;
+    const choiceRegex = /^\**\s*([A-D])\.?\s*/i;
+    const idRegex = /ID:\s*(\d+)/i;
 
-container.innerHTML = rawHtml || '';
+    for (let ln of lines) {
+        const cleanTxt = ln.replace(/<[^>]+>/g, '').trim();
+        const idMatch = cleanTxt.match(idRegex);
 
-const lines = [];
+        if (idMatch) {
+            if (current) items.push(current);
+            current = { rawId: idMatch[1], question: '', choices: [] };
+            continue;
+        }
 
-container.childNodes.forEach((node) => {
+        if (!current && !idMatch) current = { question: '', choices: [] };
 
-if (node.nodeType === Node.ELEMENT_NODE) {
+        const choiceMatch = cleanTxt.match(choiceRegex);
+        if (choiceMatch) {
+            const key = choiceMatch[1].toLowerCase();
+            const cleanText = cleanTxt.replace(choiceRegex, '').trim();
+            current.choices.push({ key, text: cleanText });
+        } else {
+            const cleanLn = ln.replace(/^\s*<p>\s*\d+[\.:,)]\s*/, '<p>').replace(/^\s*\d+[\.:,)]\s*/, '');
+            current.question += (current.question ? '<br>' : '') + cleanLn;
+        }
+    }
 
-if (node.outerHTML.trim()) lines.push(node.outerHTML.trim());
-
-} else if (node.nodeType === Node.TEXT_NODE) {
-
-const t = node.textContent.trim();
-
-if (t) lines.push(t);
-
+    if (current) items.push(current);
+    return items.map((it, i) => ({
+        id: i + 1,
+        rawId: it.rawId || null,
+        question: it.question,
+        choices: it.choices,
+    }));
 }
 
-});
-
-const items = [];
-
-let current = null;
-
-const choiceRegex = /^\**\s*([A-D])\.?\s*/i;
-
-const idRegex = /ID:\s*(\d+)/i;
-
-for (let ln of lines) {
-
-const cleanTxt = ln.replace(/<[^>]+>/g, '').trim();
-
-const idMatch = cleanTxt.match(idRegex);
-
-if (idMatch) {
-
-if (current) items.push(current);
-
-current = { rawId: idMatch[1], question: '', choices: [] };
-
-continue;
-
-}
-
-if (!current && !idMatch) current = { question: '', choices: [] };
-
-const choiceMatch = cleanTxt.match(choiceRegex);
-
-if (choiceMatch) {
-
-const key = choiceMatch[1].toLowerCase();
-
-const cleanText = cleanTxt.replace(choiceRegex, '').trim();
-
-current.choices.push({ key, text: cleanText });
-
-} else {
-
-const cleanLn = ln.replace(/^\s*<p>\s*\d+[\.:,)]\s*/, '<p>').replace(/^\s*\d+[\.:,)]\s*/, '');
-
-current.question += (current.question ? '<br>' : '') + cleanLn;
-
-}
-
-}
-
-if (current) items.push(current);
-
-return items.map((it, i) => ({
-
-id: i + 1,
-
-rawId: it.rawId || null,
-
-question: it.question,
-
-choices: it.choices,
-
-}));
-
-}
 
 // Parse answers
 
@@ -790,60 +756,46 @@ return map;
 // Process button
 
 processBtn.addEventListener('click', () => {
+    const html = pasteArea.innerHTML;
+    parsed = parseContent(html);
+    const autoDetect = document.getElementById('autoDetectCorrect').checked;
+    let ansMap = [];
 
-const html = pasteArea.innerHTML;
+    if (autoDetect) {
+        parsed.forEach((q, i) => {
+            // Tìm tất cả các đáp án có đánh dấu **
+            const correctChoices = q.choices.filter(
+                (c) => /^\s*\*\*/.test(c.text.trim()) || /\*\*\s*$/.test(c.text.trim()) ||
+                        c.text.includes('<strong>') || c.text.includes('<b>**')
+            );
 
-parsed = parseContent(html);
+            if (correctChoices.length > 0) {
+                // Nếu có nhiều đáp án đúng
+                q.correct = correctChoices.map(c => c.key);
+                q.multiple = correctChoices.length > 1; // Đánh dấu là câu hỏi nhiều đáp án
+                
+                // Xóa dấu ** khỏi text
+                correctChoices.forEach(c => {
+                    c.text = c.text.replace(/\*\*/g, '').trim();
+                });
+            } else {
+                q.correct = [];
+                q.multiple = false;
+            }
+        });
+    } else {
+        ansMap = parseAnswers(answersInput.value);
+        parsed.forEach((q, i) => {
+            q.correct = ansMap[i] ? [ansMap[i]] : [];
+            q.multiple = false;
+        });
+    }
 
-const autoDetect = document.getElementById('autoDetectCorrect').checked;
-
-let ansMap = [];
-
-if (autoDetect) {
-
-parsed.forEach((q, i) => {
-
-const found = q.choices.find(
-
-(c) =>
-
-/^\s*\*\*/.test(c.text.trim()) ||
-
-/\*\*\s*$/.test(c.text.trim()) ||
-
-c.text.includes('<strong>') ||
-
-c.text.includes('<b>**')
-
-);
-
-if (found) {
-
-q.correct = found.key; // ✅ Gắn trực tiếp vào object
-
-found.text = found.text.replace(/\*\*/g, '').trim();
-
-}
-
+    jsonOut.textContent = JSON.stringify(parsed, null, 2);
+    log('Xử lý xong — ' + parsed.length + ' câu hỏi.');
 });
 
-} else {
 
-ansMap = parseAnswers(answersInput.value);
-
-parsed.forEach((q, i) => {
-
-q.correct = ansMap[i] || null; // ✅ Gắn trực tiếp vào object
-
-});
-
-}
-
-jsonOut.textContent = JSON.stringify(parsed, null, 2);
-
-log('Xử lý xong — ' + parsed.length + ' câu hỏi.');
-
-});
 
 // Toggle JSON preview
 
@@ -950,87 +902,125 @@ renderQuestion(currentIndex);
 });
 
 // Render question
-
 function renderQuestion(i) {
+    if (!parsed[i]) {
+        preview.innerHTML = '<div style="color:var(--muted)">Hết câu. Nhấn "Làm lại" để làm lại.</div>';
+        return;
+    }
 
-if (!parsed[i]) {
+    const p = parsed[i];
+    quizStatus.textContent = `${i + 1}/${parsed.length}`;
 
-preview.innerHTML =
+    // Hiển thị thông báo cho câu hỏi nhiều đáp án
+    const multipleNotice = p.multiple ? '<div style="color:#f59e0b; font-size:14px; margin-bottom:8px;">📌 Câu hỏi có nhiều đáp án đúng</div>' : '';
 
-'<div style="color:var(--muted)">Hết câu. Nhấn "Làm lại" để làm lại.</div>';
+    const choicesHtml = p.choices
+        .map(
+            (c) => `
+            <div class="choice" data-key="${c.key}">
+                <strong>${c.key.toUpperCase()}.</strong> ${c.text}
+            </div>`
+        )
+        .join('');
 
-return;
+    preview.innerHTML = `
+        <div class="question-card">
+            <div><strong>Câu ${i + 1}:</strong> ${p.question}</div>
+            ${multipleNotice}
+            <div class="choices">${choicesHtml}</div>
+        </div>`;
 
-}
-
-const p = parsed[i];
-
-quizStatus.textContent = `${i + 1}/${parsed.length}`;
-
-const choicesHtml = p.choices
-
-.map(
-
-(c) => `
-
-<div class="choice" data-key="${c.key}">
-
-<strong>${c.key.toUpperCase()}.</strong> ${c.text}
-
-</div>`
-
-)
-
-.join('');
-
-preview.innerHTML = `
-
-<div class="question-card">
-
-<div><strong>Câu ${i + 1}:</strong> ${p.question}</div>
-
-<div class="choices">${choicesHtml}</div>
-
-</div>`;
-
-document.querySelectorAll('.choice').forEach((ch) => {
-
-ch.addEventListener('click', () => handleChoiceSelect(ch));
-
-});
-
+    document.querySelectorAll('.choice').forEach((ch) => {
+        ch.addEventListener('click', () => handleChoiceSelect(ch));
+    });
 }
 
 // Handle answer
 
 function handleChoiceSelect(chEl) {
-  if (isProcessing) return; // Nếu đang xử lý, không làm gì cả
+    if (isProcessing) return;
 
-  isProcessing = true; // Đánh dấu bắt đầu xử lý
-  const key = chEl.dataset.key;
-  const idx = currentIndex;
-  const correct = parsed[idx].correct;
+    isProcessing = true;
+    const key = chEl.dataset.key;
+    const idx = currentIndex;
+    const question = parsed[idx];
+    const correctAnswers = question.correct || [];
+    const isMultiple = question.multiple;
 
-  userAnswers[idx + 'selected'] = key;
-  document.querySelectorAll('.choice').forEach((c) => c.classList.remove('correct', 'wrong'));
-  if (key === correct) {
-    chEl.classList.add('correct');
-    userAnswers[idx] = true;
-  } else {
-    chEl.classList.add('wrong');
-    userAnswers[idx] = false;
-    const correctEl = Array.from(document.querySelectorAll('.choice')).find(
-      (c) => c.dataset.key === correct
-    );
-    if (correctEl) correctEl.classList.add('correct');
-  }
+    // Khởi tạo mảng lưu câu trả lời của user nếu chưa có
+    if (!userAnswers[idx + 'selected']) {
+        userAnswers[idx + 'selected'] = [];
+    }
 
-  setTimeout(() => {
-    isProcessing = false; // Đánh dấu kết thúc xử lý
-    currentIndex++;
-    if (currentIndex < parsed.length) renderQuestion(currentIndex);
-    else showSummary();
-  }, autoAdvanceMs);
+    const selectedAnswers = userAnswers[idx + 'selected'];
+
+    if (isMultiple) {
+        // Câu hỏi nhiều đáp án - toggle lựa chọn
+        if (selectedAnswers.includes(key)) {
+            // Bỏ chọn nếu đã chọn rồi
+            const index = selectedAnswers.indexOf(key);
+            selectedAnswers.splice(index, 1);
+            chEl.classList.remove('selected');
+        } else {
+            // Thêm vào danh sách chọn
+            selectedAnswers.push(key);
+            chEl.classList.add('selected');
+        }
+
+        // Kiểm tra xem đã chọn đủ số đáp án chưa
+        const allCorrectSelected = correctAnswers.every(ca => selectedAnswers.includes(ca));
+        const noExtraSelected = selectedAnswers.every(sa => correctAnswers.includes(sa));
+        const isFullyCorrect = allCorrectSelected && noExtraSelected && selectedAnswers.length === correctAnswers.length;
+
+        // Hiển thị đáp án đúng nếu đã chọn đủ
+        if (selectedAnswers.length === correctAnswers.length) {
+            document.querySelectorAll('.choice').forEach((c) => {
+                const choiceKey = c.dataset.key;
+                if (correctAnswers.includes(choiceKey)) {
+                    c.classList.add('correct');
+                }
+                if (selectedAnswers.includes(choiceKey) && !correctAnswers.includes(choiceKey)) {
+                    c.classList.add('wrong');
+                }
+            });
+
+            userAnswers[idx] = isFullyCorrect;
+
+            setTimeout(() => {
+                isProcessing = false;
+                currentIndex++;
+                if (currentIndex < parsed.length) renderQuestion(currentIndex);
+                else showSummary();
+            }, autoAdvanceMs);
+        } else {
+            isProcessing = false;
+        }
+    } else {
+        // Câu hỏi một đáp án - giữ nguyên logic cũ
+        userAnswers[idx + 'selected'] = [key];
+        document.querySelectorAll('.choice').forEach((c) => c.classList.remove('correct', 'wrong', 'selected'));
+
+        if (correctAnswers.includes(key)) {
+            chEl.classList.add('correct');
+            userAnswers[idx] = true;
+        } else {
+            chEl.classList.add('wrong');
+            userAnswers[idx] = false;
+            correctAnswers.forEach(correctKey => {
+                const correctEl = Array.from(document.querySelectorAll('.choice')).find(
+                    (c) => c.dataset.key === correctKey
+                );
+                if (correctEl) correctEl.classList.add('correct');
+            });
+        }
+
+        setTimeout(() => {
+            isProcessing = false;
+            currentIndex++;
+            if (currentIndex < parsed.length) renderQuestion(currentIndex);
+            else showSummary();
+        }, autoAdvanceMs);
+    }
 }
 
 // Summary
@@ -1038,118 +1028,79 @@ function handleChoiceSelect(chEl) {
 function showSummary() {
 
 const total = parsed.length;
+    const correctList = [];
+    const wrongList = [];
 
-const correctList = [];
+    parsed.forEach((q, i) => {
+        const isCorrect = userAnswers[i];
+        const questionHtml = q.question.replace(/<br\s*\/?>/gi, '<br>');
+        const userSelected = userAnswers[i + 'selected'] || [];
+        const correctAnswers = q.correct || [];
 
-const wrongList = [];
+        if (isCorrect) {
+            correctList.push(
+                `<div class="result-item correct"><strong>Câu ${i + 1}:</strong> ${questionHtml}</div>`
+            );
+        } else {
+            const userKeys = Array.isArray(userSelected) ? userSelected.join(', ').toUpperCase() : userSelected;
+            const correctKeys = correctAnswers.join(', ').toUpperCase();
+            
+            wrongList.push(`
+                <div class="result-item wrong">
+                    <strong>Câu ${i + 1}:</strong> ${questionHtml}<br>
+                    <b>Chọn:</b> ${userKeys}<br>
+                    <b>Đúng:</b> ${correctKeys}
+                </div>`);
+        }
+    });
 
-parsed.forEach((q, i) => {
-
-const isCorrect = userAnswers[i];
-
-const questionHtml = q.question.replace(/<br\s*\/?>/gi, '<br>');
-
-if (isCorrect) {
-
-correctList.push(
-
-`<div class="result-item correct"><strong>Câu ${i + 1}:</strong> ${questionHtml}</div>`
-
-);
-
-} else {
-
-const userKey = userAnswers[i + 'selected'] || 'Chưa chọn';
-
-const correctKey = q.correct || 'Chưa có';
-
-const userChoice = q.choices.find((c) => c.key === userKey)?.text || '';
-
-const correctChoice = q.choices.find((c) => c.key === correctKey)?.text || '';
-
-wrongList.push(`
-
-<div class="result-item wrong">
-
-<strong>Câu ${i + 1}:</strong> ${questionHtml}<br>
-
-<b>Chọn:</b> ${userKey.toUpperCase()} — ${userChoice}<br>
-
-<b>Đúng:</b> ${correctKey.toUpperCase()} — ${correctChoice}
-
-</div>`);
-
-}
-
-});
-
-preview.innerHTML = `
-
-<div class="result-summary">
-
-<h3>Kết quả làm bài</h3>
-
-<div class="result-stats">
-
-<span class="correct-count">Đúng: ${correctList.length}</span>
-
-<span class="wrong-count">Sai: ${wrongList.length}</span>
-
-<span>Tổng: ${total}</span>
-
-</div>
-
-<div class="result-lists">
-
-<div class="result-list">
-
-<h4>✅ Câu đúng (${correctList.length})</h4>
-
-${correctList.join('')}
-
-</div>
-
-<div class="result-list">
-
-<h4>❌ Câu sai (${wrongList.length})</h4>
-
-${wrongList.join('')}
-
-</div>
-
-</div>
-
-<div class="result-actions">
-
-<button id="retryBtn">Làm lại</button>
-
-<button id="exitBtn" class="ghost">Quay lại trang chủ</button>
-
-</div>
-
-</div>`;
+  preview.innerHTML = `
+    <div class="result-summary">
+        <h3>Kết quả làm bài</h3>
+        <div class="result-stats">
+            <span class="correct-count">Đúng: ${correctList.length}</span>
+            <span class="wrong-count">Sai: ${wrongList.length}</span>
+            <span>Tổng: ${total}</span>
+        </div>
+        <div class="result-lists">
+            <div class="result-list">
+                <h4>✅ Câu đúng (${correctList.length})</h4>
+                ${correctList.join('')}
+            </div>
+            <div class="result-list">
+                <h4>❌ Câu sai (${wrongList.length})</h4>
+                ${wrongList.join('')}
+            </div>
+        </div>
+        <div class="result-actions">
+            <button id="retryBtn">Làm lại</button>
+            <button id="exitBtn" class="ghost">Quay lại trang chủ</button>
+        </div>
+    </div>`;
 
 document.getElementById('retryBtn').addEventListener('click', () => {
+        currentIndex = 0;
+        userAnswers = {};
+        renderQuestion(0);
+    });
 
-currentIndex = 0;
-
-userAnswers = {};
-
-renderQuestion(0);
-
-});
 
 document.getElementById('exitBtn').addEventListener('click', () => {
-
-document.body.classList.remove('fullscreen-quiz');
-
-document.querySelector('.right-col').style.display = 'none';
-
-preview.innerHTML = `<div style="color:var(--muted);font-size:13px">Chưa có dữ liệu.</div>`;
-
-});
+        document.body.classList.remove('fullscreen-quiz');
+        document.querySelector('.right-col').style.display = 'none';
+        preview.innerHTML = `<div style="color:var(--muted);font-size:13px">Chưa có dữ liệu.</div>`;
+    });
 
 }
+
+const style = document.createElement('style');
+style.textContent = `
+    .choice.selected {
+        background-color: rgba(15, 98, 254, 0.1);
+        border-color: var(--accent);
+    }
+`;
+document.head.appendChild(style);
 
 window.addEventListener('load', () => {
 
@@ -1188,11 +1139,3 @@ console.error('Invalid quiz data', e);
 </body>
 
 </html>
-
-
-
-
-
-
-
-
