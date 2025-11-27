@@ -321,7 +321,7 @@ function parseContent(rawHtml) {
 
     // Xóa các thẻ <o:p> và <br>
     const cleanedHtml = rawHtml.replace(/<o:p><\/o:p>/g, '')
-                                .replace(/<br\s*\/?>/g, ''); // Xóa tất cả các thẻ <br>
+                                .replace(/<br\s*\/?>/g, '').replace(/<p[^>]*>\s*(<span[^>]*>)?&nbsp;(<\/span>)?\s*<\/p>/g, ''); // Xóa tất cả các thẻ <br>
 
     const container = document.createElement('div');
     container.innerHTML = cleanedHtml; // Sử dụng HTML đã được làm sạch
