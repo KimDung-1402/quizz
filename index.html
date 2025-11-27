@@ -338,7 +338,7 @@ function parseContent(rawHtml) {
     });
     const items = [];
     let current = null;
-    const choiceRegex = /^\s*([A-D])\s*[\.:]\s+/;
+    const choiceRegex = /^\s*(\*{1,2}\s*)?([A-Da-d])\s*[\.:]\s+/;
     const idRegex = /ID:\s*(\d+)/i;
     for (let ln of lines) {
         const cleanTxt = ln.replace(/<[^>]+>/g, '').trim();
@@ -351,10 +351,14 @@ function parseContent(rawHtml) {
         if (!current && !idMatch) current = { question: '', choices: [] };
         const choiceMatch = cleanTxt.match(choiceRegex);
         if (choiceMatch) {
-            const key = choiceMatch[1].toLowerCase();
+            // choiceMatch[1] là optional stars (nếu dùng), choiceMatch[2] là chữ A-D
+            const starPrefix = choiceMatch[1] || '';
+            const key = choiceMatch[2].toLowerCase();
             const cleanText = cleanTxt.replace(choiceRegex, '').trim();
-            current.choices.push({ key, text: cleanText });
-        } else {
+            const starred = /^\s*\*{1,2}/.test(cleanTxt); // có ** ở đầu dòng choice ban đầu?
+            current.choices.push({ key, text: cleanText, starred });
+        }
+         else {
             const cleanLn = ln.replace(/^\s*<p>\s*\d+[\.:,)]\s*/, '<p>').replace(/^\s*\d+[\.:,)]\s*/, '');
             current.question += (current.question ? '<br>' : '') + cleanLn;
         }
