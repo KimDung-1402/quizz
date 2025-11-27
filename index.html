@@ -251,21 +251,24 @@ fileInput.addEventListener('change', async (e) => {
     };
     fr.readAsText(f);
 });
+
 function stripHtml(html) {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
+
     const allowedTags = ['P']; // Chỉ cho phép thẻ <p>
-    
-    // Khởi tạo chuỗi chứa nội dung đã làm sạch
-    const cleanedText = Array.from(tempDiv.childNodes)
+    let cleanedText = Array.from(tempDiv.childNodes)
         .filter(node => allowedTags.includes(node.nodeName) && node.nodeName !== 'O:P')
         .map(node => node.outerHTML)
         .join('')
-        .replace(/<br\s*\/?>/g, '') // Xóa tất cả các thẻ <br>
-        .replace(/&nbsp;/g, '')     // Xóa khoảng trắng không gian
-        .trim(); // Xóa khoảng trắng ở đầu và cuối
+        .replace(/<br\s*\/?>/g, '') // Xoá <br>
+        .replace(/&nbsp;/g, '')    // Xoá &nbsp;
+        .trim();
 
-    return cleanedText; // Trả về nội dung đã làm sạch
+    // Xoá các đoạn <p class="MsoNormal"><span lang="EN-US">&nbsp;</span></p> hoặc <p class="...">&nbsp;</p>
+    cleanedText = cleanedText.replace(/<p[^>]*>\s*(<span[^>]*>)?&nbsp;(<\/span>)?\s*<\/p>/g, '');
+
+    return cleanedText;
 }
 function log(msg) { logEl.textContent = msg; }
 function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
