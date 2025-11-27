@@ -338,7 +338,7 @@ function parseContent(rawHtml) {
     });
     const items = [];
     let current = null;
-    const choiceRegex = /^\**\s*([A-D])\.?\s*/i;
+    const choiceRegex = /^\s*([A-D])\s*[\.:]\s+/;
     const idRegex = /ID:\s*(\d+)/i;
     for (let ln of lines) {
         const cleanTxt = ln.replace(/<[^>]+>/g, '').trim();
