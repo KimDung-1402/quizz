@@ -282,10 +282,10 @@ input[type=file] { display:none }
 
       <div style="height:12px"></div>
 
-      <div style="display:flex;justify-content:center;">
+      <div style="display:flex;justify-content:space-between;">
 
         <div class="status" id="quizStatus">0 câu</div>
-
+        <button id="exit" class="ghost" style="color:#0452f8!important; border: 1px solid rgb(84, 79, 79)!important">Quay lại trang chủ</button>
       </div>
 
       <div style="height:10px"></div>
@@ -1377,6 +1377,49 @@ document.addEventListener('visibilitychange', () => {
         saveQuizState();
     }
 });
+
+// ===== XỬ LÝ NÚT THOÁT (id="exit") =====
+const exitBtn = document.getElementById('exit');
+
+if (exitBtn) {
+    exitBtn.addEventListener('click', () => {
+        const choice = confirm(
+            'Bạn muốn thoát khỏi bài làm?\n\n' +
+            'OK: Thoát & lưu để làm tiếp sau\n' +
+            'Cancel: Thoát & xóa bài làm'
+        );
+
+        if (choice) {
+            // ✅ Lưu trạng thái
+            saveQuizState();
+            exitToHome(false);
+        } else {
+            // ❌ Xóa trạng thái
+            localStorage.removeItem('quizState');
+            exitToHome(true);
+        }
+    });
+}
+function exitToHome(clearState) {
+    if (clearState) {
+        parsed = originalParsed
+            ? JSON.parse(JSON.stringify(originalParsed))
+            : [];
+        currentIndex = 0;
+        userAnswers = {};
+    }
+
+    document.body.classList.remove('fullscreen-quiz');
+    document.querySelector('.right-col').style.display = 'none';
+
+    preview.innerHTML = `
+        <div style="color:var(--muted);font-size:13px">
+            Chưa có dữ liệu.
+        </div>
+    `;
+
+    log('Đã thoát khỏi chế độ làm bài.');
+}
 window.addEventListener('load', () => {
     const saved = localStorage.getItem('quizState');
     if (!saved) return;
@@ -1384,20 +1427,24 @@ window.addEventListener('load', () => {
     try {
         const state = JSON.parse(saved);
 
-        if (state.inQuiz && state.parsed && state.parsed.length > 0) {
-            parsed = state.parsed;
-            originalParsed = state.originalParsed;
-            currentIndex = state.currentIndex || 0;
-            userAnswers = state.userAnswers || {};
+        if (state.inQuiz && state.parsed?.length) {
+            if (confirm('Bạn có muốn tiếp tục bài làm trước đó không?')) {
+                parsed = state.parsed;
+                currentIndex = state.currentIndex || 0;
+                userAnswers = state.userAnswers || {};
+                originalParsed = state.originalParsed;
 
-            document.querySelector('.right-col').style.display = 'block';
-            document.body.classList.add('fullscreen-quiz');
+                document.querySelector('.right-col').style.display = 'block';
+                document.body.classList.add('fullscreen-quiz');
 
-            renderQuestion(currentIndex);
-            log('🔁 Đã khôi phục bài làm trước đó.');
+                renderQuestion(currentIndex);
+                log('🔄 Đã khôi phục bài làm.');
+            } else {
+                localStorage.removeItem('quizState');
+            }
         }
     } catch (e) {
-        console.error('Không thể khôi phục quiz', e);
+        console.error('Lỗi khôi phục quiz', e);
     }
 });
 
