@@ -6,6 +6,7 @@
 <title>Quiz Processor — Paste / Read / Convert → JSON & Quiz</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style>
+/* GIỮ NGUYÊN CSS CŨ */
 #pasteArea img { max-width: 100% !important; max-height: 200px !important; height: auto !important; object-fit: contain; display: block; margin: 8px auto; }
 .choice strong, .choice span { display: inline; }
 .choice { display: flex; align-items: center; gap: 6px; }
@@ -61,37 +62,26 @@ input[type=file] { display:none }
 .result-item.correct { background:rgba(16,185,129,0.15); border-left:3px solid #10b981; }
 .result-item.wrong { background:rgba(239,68,68,0.12); border-left:3px solid #ef4444; }
 .result-actions { display:flex; gap:8px; margin-top:6px; }
-.question-card > div {
-    line-height: 1.5; /* Điều chỉnh độ cao dòng */
-    padding: 8px 0; /* Giảm padding nếu cần */
-}
-
-.result-item {
-    line-height: 1.4; /* Điều chỉnh độ cao dòng cho kết quả */
-    padding: 6px 8px; /* Điều chỉnh padding của từng item */
-}
-.question-card > div:empty {
-    display: none; /* Ẩn các thẻ div trống */
-}
-
-.result-item:empty {
-    display: none; /* Ẩn các thẻ result-item trống */
-}
+.question-card > div { line-height: 1.5; padding: 8px 0; }
+.result-item { line-height: 1.4; padding: 6px 8px; }
+.question-card > div:empty { display: none; }
+.result-item:empty { display: none; }
+.choice.selected { background-color: rgba(15, 98, 254, 0.1); border-color: var(--accent); }
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
 <div>
-<h1>Quiz Processor</h1>
-<p class="lead">Dán (Ctrl+V) hoặc chọn file để nhập nội dung có thể kèm hình ảnh. Xử lý thành JSON và chuyển sang chế độ làm bài (quiz).</p>
+<h1>Quiz Processor (Auto-Save)</h1>
+<p class="lead">Dữ liệu sẽ tự động lưu. Nếu reload trang, bạn sẽ tiếp tục nơi đang làm dở.</p>
 </div>
 </header>
 <div class="grid">
   <div>
     <div class="card">
       <label>Nội dung (paste hỗ trợ văn bản + hình ảnh)</label>
-      <div id="pasteArea" contenteditable="true" spellcheck="false" aria-label="Khu vực dán văn bản và hình ảnh">Nhập hoặc dán (Ctrl+V) nội dung vào đây. Hỗ trợ paste hình ảnh từ clipboard (Ctrl+V hình).</div>
+      <div id="pasteArea" contenteditable="true" spellcheck="false" aria-label="Khu vực dán văn bản và hình ảnh">Nhập hoặc dán (Ctrl+V) nội dung vào đây.</div>
       <div style="height:10px"></div>
       <div class="meta">
         <div class="controls">
@@ -103,6 +93,7 @@ input[type=file] { display:none }
           <button class="ghost" id="previewJSONBtn">Xem JSON</button>
           <button id="startQuizBtn">Làm bài</button>
           <button id="shareQuizBtn" class="ghost">Chia sẻ</button>
+          <button id="clearDataBtn" class="warn small">Xóa dữ liệu lưu</button>
           <div style="display:flex;gap:12px;align-items:center;margin-top:6px">
             <label><input type="checkbox" id="shuffleQuestions"> Trộn câu hỏi</label>
             <label><input type="checkbox" id="shuffleChoices"> Trộn đáp án</label>
@@ -124,7 +115,6 @@ input[type=file] { display:none }
         <div style="height:12px"></div>
         <label>JSON (kết quả xử lý)</label>
         <pre id="jsonOut">Chưa xử lý</pre>
-        <div class="footer-note">Gợi ý: nếu paste từ Word/HTML, script cố gắng tách câu theo các block bắt đầu bằng <code>ID:</code> hoặc số thứ tự. Bạn có thể chỉnh tay nếu cần.</div>
       </div>
     </div>
     <div style="height:14px"></div>
@@ -165,56 +155,102 @@ const previewJSONBtn = el('#previewJSONBtn');
 const quizStatus = el('#quizStatus');
 const shareQuizBtn = el('#shareQuizBtn');
 const jsonSection = el('#jsonSection');
+const clearDataBtn = el('#clearDataBtn');
+
 let isProcessing = false;
 let parsed = [];
 let currentIndex = 0;
 let userAnswers = {};
 let autoAdvanceMs = 900;
-// Lưu quiz đầy đủ lần đầu khi vào bài
 let originalParsed = null;
 
+// --- TÍNH NĂNG LƯU TRẠNG THÁI (MỚI) ---
+const STORAGE_KEY = 'quiz_pro_state';
+
+function saveState() {
+    try {
+        const state = {
+            parsed,
+            originalParsed,
+            currentIndex,
+            userAnswers,
+            isQuizActive: document.body.classList.contains('fullscreen-quiz'),
+            timestamp: Date.now()
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        // console.log('Đã lưu trạng thái');
+    } catch (e) {
+        console.error('Không thể lưu (có thể do ảnh quá lớn):', e);
+        log('⚠️ Cảnh báo: File quá nặng, có thể không lưu được tiến độ nếu tắt tab.');
+    }
+}
+
+function restoreState() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (!saved) return;
+        const state = JSON.parse(saved);
+        
+        // Chỉ khôi phục nếu dữ liệu hợp lệ
+        if (state.parsed && state.parsed.length > 0) {
+            parsed = state.parsed;
+            originalParsed = state.originalParsed || JSON.parse(JSON.stringify(parsed));
+            currentIndex = state.currentIndex || 0;
+            userAnswers = state.userAnswers || {};
+            
+            log('♻️ Đã khôi phục bài làm cũ của bạn.');
+            
+            if (state.isQuizActive) {
+                document.querySelector('.right-col').style.display = 'block';
+                document.body.classList.add('fullscreen-quiz');
+                if (currentIndex >= parsed.length) {
+                    showSummary();
+                } else {
+                    renderQuestion(currentIndex);
+                }
+            } else {
+                 // Nếu trước đó chưa vào chế độ làm bài, chỉ load JSON vào bộ nhớ
+                 jsonOut.textContent = JSON.stringify(parsed, null, 2);
+                 log('♻️ Đã khôi phục dữ liệu đã xử lý.');
+            }
+        }
+    } catch (e) {
+        console.error('Lỗi khôi phục:', e);
+        localStorage.removeItem(STORAGE_KEY);
+    }
+}
+
+function clearState() {
+    localStorage.removeItem(STORAGE_KEY);
+    location.reload(); 
+}
+
+clearDataBtn.addEventListener('click', () => {
+    if(confirm('Bạn có chắc muốn xóa toàn bộ dữ liệu đã lưu và làm mới trang?')) {
+        clearState();
+    }
+});
+
+// --- CÁC HÀM TIỆN ÍCH ---
 function log(msg) { logEl.textContent = msg; }
 function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+
 function stripHtml(html) {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
-    const allowedTags = ['BR', 'P'];
-    const cleanedText = Array.from(tempDiv.childNodes)
+    const allowedTags = ['P']; 
+    let cleanedText = Array.from(tempDiv.childNodes)
         .filter(node => allowedTags.includes(node.nodeName) && node.nodeName !== 'O:P')
-        .map(node => node.outerHTML).join('')
-        .replace(/<\/p>\s*<br>\s*<p>/g, ''); // Xóa đoạn </p><br><p
-    return cleanedText.replace(/&nbsp;/g, '').replace(/<o:p>/g, '').replace(/<\/o:p>/g, '').trim();
+        .map(node => node.outerHTML)
+        .join('')
+        .replace(/<br\s*\/?>/g, '') 
+        .replace(/&nbsp;/g, '')    
+        .trim();
+    cleanedText = cleanedText.replace(/<p[^>]*>\s*(<span[^>]*>)?&nbsp;(<\/span>)?\s*<\/p>/g, '');
+    return cleanedText;
 }
-// ✅ HÀM CHIA SẺ MỚI
-shareQuizBtn.addEventListener('click', () => {
-    if (parsed.length === 0) { alert('Chưa có quiz để chia sẻ!'); return; }
-    const json = JSON.stringify(parsed);
-    const encoded = btoa(unescape(encodeURIComponent(json)));
-    const link = `${location.origin}${location.pathname}?d=${encoded}`;
-    navigator.clipboard.writeText(link)
-        .then(() => log('✅ Đã sao chép link chia sẻ!'))
-        .catch(err => log('❌ Lỗi copy link: ' + err));
-});
-// ✅ KHI NGƯỜI KHÁC MỞ LINK
-window.addEventListener('load', () => {
-    const params = new URLSearchParams(location.search);
-    const encoded = params.get('d');
-    if (encoded) {
-        try {
-            const decoded = decodeURIComponent(escape(atob(encoded)));
-            parsed = JSON.parse(decoded);
-            document.querySelector('.right-col').style.display = 'block';
-            document.body.classList.add('fullscreen-quiz');
-            currentIndex = 0;
-            userAnswers = {};
-            originalParsed = JSON.parse(JSON.stringify(parsed)); // Lưu lại quiz gốc
-            renderQuestion(currentIndex);
-            log('📦 Đã tải quiz từ link chia sẻ.');
-        } catch (e) {
-            console.error('❌ Lỗi giải mã quiz', e);
-        }
-    }
-});
+
+// --- XỬ LÝ FILE ---
 fileInput.addEventListener('change', async (e) => {
     const f = e.target.files[0];
     if (!f) return;
@@ -241,45 +277,15 @@ fileInput.addEventListener('change', async (e) => {
     const fr = new FileReader();
     fr.onload = () => {
         if (f.name.endsWith('.html') || f.type === 'text/html') {
-            const cleanedHtml = stripHtml(fr.result);
-            pasteArea.innerHTML = cleanedHtml;
+            pasteArea.innerHTML = stripHtml(fr.result);
         } else {
-            const cleanedText = stripHtml(fr.result);
-            pasteArea.textContent = cleanedText;
+            pasteArea.textContent = stripHtml(fr.result);
         }
         log('Đã đọc file: ' + f.name);
     };
     fr.readAsText(f);
 });
 
-function stripHtml(html) {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-
-    const allowedTags = ['P']; // Chỉ cho phép thẻ <p>
-    let cleanedText = Array.from(tempDiv.childNodes)
-        .filter(node => allowedTags.includes(node.nodeName) && node.nodeName !== 'O:P')
-        .map(node => node.outerHTML)
-        .join('')
-        .replace(/<br\s*\/?>/g, '') // Xoá <br>
-        .replace(/&nbsp;/g, '')    // Xoá &nbsp;
-        .trim();
-
-    // Xoá các đoạn <p class="MsoNormal"><span lang="EN-US">&nbsp;</span></p> hoặc <p class="...">&nbsp;</p>
-    cleanedText = cleanedText.replace(/<p[^>]*>\s*(<span[^>]*>)?&nbsp;(<\/span>)?\s*<\/p>/g, '');
-
-    return cleanedText;
-}
-function log(msg) { logEl.textContent = msg; }
-function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
-shareQuizBtn.addEventListener('click', () => {
-    if (parsed.length === 0) { alert('Chưa có quiz để chia sẻ!'); return; }
-    const data = encodeURIComponent(JSON.stringify(parsed));
-    const link = window.location.origin + window.location.pathname + '?quiz=' + data;
-    navigator.clipboard.writeText(link)
-        .then(() => log('Liên kết quiz đã được copy vào clipboard!'))
-        .catch(err => log('Lỗi copy link: ' + err));
-});
 pasteArea.addEventListener('paste', async (e) => {
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
@@ -291,12 +297,12 @@ pasteArea.addEventListener('paste', async (e) => {
             e.preventDefault();
         } else if (it.type.startsWith('text/')) {
             const text = await navigator.clipboard.readText();
-            const cleanText = stripHtml(text);
-            insertHTMLAtCursor(cleanText);
+            insertHTMLAtCursor(stripHtml(text));
             e.preventDefault();
         }
     }
 });
+
 function fileToDataURL(file) {
     return new Promise((res, rej) => {
         const fr = new FileReader();
@@ -305,6 +311,7 @@ function fileToDataURL(file) {
         fr.readAsDataURL(file);
     });
 }
+
 function insertHTMLAtCursor(html) {
     const sel = window.getSelection();
     if (!sel || !sel.getRangeAt || sel.rangeCount === 0) {
@@ -316,17 +323,13 @@ function insertHTMLAtCursor(html) {
     const frag = range.createContextualFragment(html);
     range.insertNode(frag);
 }
-// Parse content
+
+// --- XỬ LÝ NỘI DUNG ---
 function parseContent(rawHtml) {
-
-    // Xóa các thẻ <o:p> và <br>
     const cleanedHtml = rawHtml.replace(/<o:p><\/o:p>/g, '')
-                                .replace(/<br\s*\/?>/g, '').replace(/<p[^>]*>\s*(<span[^>]*>)?&nbsp;(<\/span>)?\s*<\/p>/g, ''); // Xóa tất cả các thẻ <br>
-
+                               .replace(/<br\s*\/?>/g, '').replace(/<p[^>]*>\s*(<span[^>]*>)?&nbsp;(<\/span>)?\s*<\/p>/g, '');
     const container = document.createElement('div');
-    container.innerHTML = cleanedHtml; // Sử dụng HTML đã được làm sạch
-
-
+    container.innerHTML = cleanedHtml;
     const lines = [];
     container.childNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
@@ -351,14 +354,11 @@ function parseContent(rawHtml) {
         if (!current && !idMatch) current = { question: '', choices: [] };
         const choiceMatch = cleanTxt.match(choiceRegex);
         if (choiceMatch) {
-            // choiceMatch[1] là optional stars (nếu dùng), choiceMatch[2] là chữ A-D
-            const starPrefix = choiceMatch[1] || '';
             const key = choiceMatch[2].toLowerCase();
             const cleanText = cleanTxt.replace(choiceRegex, '').trim();
-            const starred = /^\s*\*{1,2}/.test(cleanTxt); // có ** ở đầu dòng choice ban đầu?
+            const starred = /^\s*\*{1,2}/.test(cleanTxt);
             current.choices.push({ key, text: cleanText, starred });
-        }
-         else {
+        } else {
             const cleanLn = ln.replace(/^\s*<p>\s*\d+[\.:,)]\s*/, '<p>').replace(/^\s*\d+[\.:,)]\s*/, '');
             current.question += (current.question ? '<br>' : '') + cleanLn;
         }
@@ -371,7 +371,7 @@ function parseContent(rawHtml) {
         choices: it.choices,
     }));
 }
-// Parse answers
+
 function parseAnswers(txt) {
     const pairs = txt.split(/[,;\n\s]+/).map((s) => s.trim()).filter(Boolean);
     const map = [];
@@ -384,35 +384,28 @@ function parseAnswers(txt) {
     }
     return map;
 }
-// Process button
+
 processBtn.addEventListener('click', () => {
     const html = pasteArea.innerHTML;
     parsed = parseContent(html);
-
     parsed = parsed.map(q => ({
-    ...q,
-    question: q.question.replace(/<br\s*\/?>/gi, ''),
-    choices: q.choices.map(choice => ({
-        ...choice,
-        text: choice.text.replace(/<br\s*\/?>/gi, '')
-    }))
-}));
+        ...q,
+        question: q.question.replace(/<br\s*\/?>/gi, ''),
+        choices: q.choices.map(choice => ({ ...choice, text: choice.text.replace(/<br\s*\/?>/gi, '') }))
+    }));
     
-    originalParsed = JSON.parse(JSON.stringify(parsed)); // Lưu lại quiz gốc lần cuối process
+    originalParsed = JSON.parse(JSON.stringify(parsed)); 
     const autoDetect = document.getElementById('autoDetectCorrect').checked;
     let ansMap = [];
     if (autoDetect) {
         parsed.forEach((q, i) => {
             const correctChoices = q.choices.filter(
-                (c) => /^\s*\*\*/.test(c.text.trim()) || /\*\*\s*$/.test(c.text.trim()) ||
-                        c.text.includes('<strong>') || c.text.includes('<b>**')
+                (c) => /^\s*\*\*/.test(c.text.trim()) || /\*\*\s*$/.test(c.text.trim()) || c.text.includes('<strong>') || c.text.includes('<b>**')
             );
             if (correctChoices.length > 0) {
                 q.correct = correctChoices.map(c => c.key);
                 q.multiple = correctChoices.length > 1;
-                correctChoices.forEach(c => {
-                    c.text = c.text.replace(/\*\*/g, '').trim();
-                });
+                correctChoices.forEach(c => { c.text = c.text.replace(/\*\*/g, '').trim(); });
             } else {
                 q.correct = [];
                 q.multiple = false;
@@ -427,38 +420,9 @@ processBtn.addEventListener('click', () => {
     }
     jsonOut.textContent = JSON.stringify(parsed, null, 2);
     log('Xử lý xong — ' + parsed.length + ' câu hỏi.');
+    saveState(); // LƯU KHI XỬ LÝ
 });
-// Toggle JSON preview
-previewJSONBtn.addEventListener('click', () => {
-    jsonSection.style.display = jsonSection.style.display === 'none' ? 'block' : 'none';
-});
-// Validate
-validateBtn.addEventListener('click', () => {
-    if (parsed.length === 0) return alert('Chưa xử lý nội dung!');
-    const ansMap = parseAnswers(answersInput.value);
-    const issues = [];
-    parsed.forEach((p, i) => {
-        if (!p.question || p.question.length < 5) issues.push(`Câu ${i + 1}: câu hỏi ngắn`);
-        if (p.choices && p.choices.length > 0) {
-            const keys = p.choices.map((c) => c.key);
-            if (ansMap[i] && !keys.includes(ansMap[i]))
-                issues.push(`Câu ${i + 1}: đáp án ${ansMap[i]} không có trong lựa chọn`);
-        }
-    });
-    log(issues.length === 0 ? 'Không phát hiện lỗi lớn.' : issues.join('\n'));
-});
-// Download JSON
-downloadJsonBtn.addEventListener('click', () => {
-    if (jsonOut.textContent.trim() === '') return alert('Chưa có JSON');
-    const blob = new Blob([jsonOut.textContent], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'quiz.json';
-    a.click();
-    URL.revokeObjectURL(url);
-});
-// Start quiz
+
 startQuizBtn.addEventListener('click', () => {
     if (parsed.length === 0) processBtn.click();
     let quizData = parsed.map(q => ({
@@ -469,12 +433,13 @@ startQuizBtn.addEventListener('click', () => {
     parsed = quizData;
     currentIndex = 0;
     userAnswers = {};
-    originalParsed = JSON.parse(JSON.stringify(parsed)); // Lưu lại quiz gốc
+    originalParsed = JSON.parse(JSON.stringify(parsed));
     document.querySelector('.right-col').style.display = 'block';
     document.body.classList.add('fullscreen-quiz');
     renderQuestion(currentIndex);
+    saveState(); // LƯU KHI BẮT ĐẦU
 });
-// Render question
+
 function renderQuestion(i) {
     if (!parsed[i]) {
         preview.innerHTML = '<div style="color:var(--muted)">Hết câu. Nhấn "Làm lại" để làm lại.</div>';
@@ -483,14 +448,24 @@ function renderQuestion(i) {
     const p = parsed[i];
     quizStatus.textContent = `${i + 1}/${parsed.length}`;
     const multipleNotice = p.multiple ? '<div style="color:#f59e0b; font-size:14px; margin-bottom:8px;">📌 Câu hỏi có nhiều đáp án đúng</div>' : '';
-    const choicesHtml = p.choices
-        .map(
-            (c) => `
-            <div class="choice" data-key="${c.key}">
+    const choicesHtml = p.choices.map((c) => {
+        // Kiểm tra xem câu này đã làm chưa để render lại màu sắc
+        let classes = 'choice';
+        const uAns = userAnswers[i + 'selected'] || [];
+        const isSelected = uAns.includes(c.key);
+        const isDone = userAnswers.hasOwnProperty(i); // Đã có kết quả đúng/sai
+
+        if (isSelected && !isDone) classes += ' selected';
+        if (isDone) {
+            if (p.correct.includes(c.key)) classes += ' correct';
+            if (isSelected && !p.correct.includes(c.key)) classes += ' wrong';
+        }
+        
+        return `<div class="${classes}" data-key="${c.key}">
                 <strong>${c.key.toUpperCase()}.</strong> ${c.text}
-            </div>`
-        )
-        .join('');
+            </div>`;
+    }).join('');
+
     preview.innerHTML = `
         <div class="question-card">
             <div><strong>Câu ${i + 1}:</strong> ${p.question}</div>
@@ -501,19 +476,23 @@ function renderQuestion(i) {
         ch.addEventListener('click', () => handleChoiceSelect(ch));
     });
 }
-// Handle answer
+
 function handleChoiceSelect(chEl) {
     if (isProcessing) return;
+    // Chặn click nếu câu này đã hoàn thành (đã có kết quả đúng sai)
+    if (userAnswers.hasOwnProperty(currentIndex)) return; 
+
     isProcessing = true;
     const key = chEl.dataset.key;
     const idx = currentIndex;
     const question = parsed[idx];
     const correctAnswers = question.correct || [];
     const isMultiple = question.multiple;
-    if (!userAnswers[idx + 'selected']) {
-        userAnswers[idx + 'selected'] = [];
-    }
-    const selectedAnswers = userAnswers[idx + 'selected'];
+
+    if (!userAnswers[idx + 'selected']) userAnswers[idx + 'selected'] = [];
+    
+    let selectedAnswers = userAnswers[idx + 'selected'];
+
     if (isMultiple) {
         if (selectedAnswers.includes(key)) {
             const index = selectedAnswers.indexOf(key);
@@ -523,32 +502,39 @@ function handleChoiceSelect(chEl) {
             selectedAnswers.push(key);
             chEl.classList.add('selected');
         }
-        const allCorrectSelected = correctAnswers.every(ca => selectedAnswers.includes(ca));
-        const noExtraSelected = selectedAnswers.every(sa => correctAnswers.includes(sa));
-        const isFullyCorrect = allCorrectSelected && noExtraSelected && selectedAnswers.length === correctAnswers.length;
+        
+        // Logic kiểm tra nhiều đáp án: Chỉ xử lý khi user chọn đủ số lượng đáp án đúng
         if (selectedAnswers.length === correctAnswers.length) {
-            document.querySelectorAll('.choice').forEach((c) => {
-                const choiceKey = c.dataset.key;
-                if (correctAnswers.includes(choiceKey)) {
-                    c.classList.add('correct');
-                }
-                if (selectedAnswers.includes(choiceKey) && !correctAnswers.includes(choiceKey)) {
-                    c.classList.add('wrong');
-                }
-            });
-            userAnswers[idx] = isFullyCorrect;
-            setTimeout(() => {
+             const allCorrectSelected = correctAnswers.every(ca => selectedAnswers.includes(ca));
+             // Hiển thị kết quả
+             document.querySelectorAll('.choice').forEach((c) => {
+                 const choiceKey = c.dataset.key;
+                 if (correctAnswers.includes(choiceKey)) c.classList.add('correct');
+                 if (selectedAnswers.includes(choiceKey) && !correctAnswers.includes(choiceKey)) c.classList.add('wrong');
+             });
+             userAnswers[idx] = allCorrectSelected;
+             saveState(); // LƯU SAU KHI LÀM XONG 1 CÂU
+             
+             setTimeout(() => {
                 isProcessing = false;
                 currentIndex++;
-                if (currentIndex < parsed.length) renderQuestion(currentIndex);
-                else showSummary();
+                if (currentIndex < parsed.length) {
+                    renderQuestion(currentIndex);
+                    saveState(); // LƯU VỊ TRÍ MỚI
+                } else {
+                    showSummary();
+                    saveState();
+                }
             }, autoAdvanceMs);
         } else {
             isProcessing = false;
+            saveState(); // LƯU TRẠNG THÁI ĐANG CHỌN DỞ
         }
     } else {
+        // Câu hỏi 1 đáp án
         userAnswers[idx + 'selected'] = [key];
         document.querySelectorAll('.choice').forEach((c) => c.classList.remove('correct', 'wrong', 'selected'));
+        
         if (correctAnswers.includes(key)) {
             chEl.classList.add('correct');
             userAnswers[idx] = true;
@@ -556,22 +542,26 @@ function handleChoiceSelect(chEl) {
             chEl.classList.add('wrong');
             userAnswers[idx] = false;
             correctAnswers.forEach(correctKey => {
-                const correctEl = Array.from(document.querySelectorAll('.choice')).find(
-                    (c) => c.dataset.key === correctKey
-                );
+                const correctEl = Array.from(document.querySelectorAll('.choice')).find((c) => c.dataset.key === correctKey);
                 if (correctEl) correctEl.classList.add('correct');
             });
         }
+        saveState(); // LƯU KẾT QUẢ
+
         setTimeout(() => {
             isProcessing = false;
             currentIndex++;
-            if (currentIndex < parsed.length) renderQuestion(currentIndex);
-            else showSummary();
+            if (currentIndex < parsed.length) {
+                 renderQuestion(currentIndex);
+                 saveState(); // LƯU VỊ TRÍ MỚI
+            } else {
+                 showSummary();
+                 saveState();
+            }
         }, autoAdvanceMs);
     }
 }
 
-// --- SHOW SUMMARY VƯỜN, BỔ SUNG LÀM LẠI CÂU SAI ---
 function showSummary() {
     const total = parsed.length;
     const correctList = [];
@@ -583,16 +573,12 @@ function showSummary() {
         const userSelected = userAnswers[i + 'selected'] || [];
         const correctAnswers = q.correct || [];
         if (isCorrect) {
-            correctList.push(
-                `<div class="result-item correct"><strong>Câu ${i + 1}:</strong> ${questionHtml}</div>`
-            );
+            correctList.push(`<div class="result-item correct"><strong>Câu ${i + 1}:</strong> ${questionHtml}</div>`);
         } else {
             wrongIndexes.push(i);
             const userKeys = Array.isArray(userSelected) ? userSelected.join(', ').toUpperCase() : userSelected;
             const correctKeys = correctAnswers.join(', ').toUpperCase();
-            const allChoices = q.choices.map(
-                c => `<div>${c.key.toUpperCase()}. ${c.text}</div>`
-            ).join('');
+            const allChoices = q.choices.map(c => `<div>${c.key.toUpperCase()}. ${c.text}</div>`).join('');
             wrongList.push(`
                 <div class="result-item wrong">
                     <strong>Câu ${i + 1}:</strong> ${questionHtml}<br>
@@ -602,9 +588,7 @@ function showSummary() {
                 </div>`);
         }
     });
-    const btnRetryWrong = wrongIndexes.length > 0
-        ? `<button id="retryWrongBtn" class="warn">Làm lại câu sai</button>`
-        : '';
+    const btnRetryWrong = wrongIndexes.length > 0 ? `<button id="retryWrongBtn" class="warn">Làm lại câu sai</button>` : '';
     preview.innerHTML = `
     <div class="result-summary">
         <h3>Kết quả làm bài</h3>
@@ -614,69 +598,98 @@ function showSummary() {
             <span>Tổng: ${total}</span>
         </div>
         <div class="result-lists">
-            <div class="result-list">
-                <h4>✅ Câu đúng (${correctList.length})</h4>
-                ${correctList.join('')}
-            </div>
-            <div class="result-list">
-                <h4>❌ Câu sai (${wrongList.length})</h4>
-                ${wrongList.join('')}
-            </div>
+            <div class="result-list"><h4>✅ Câu đúng (${correctList.length})</h4>${correctList.join('')}</div>
+            <div class="result-list"><h4>❌ Câu sai (${wrongList.length})</h4>${wrongList.join('')}</div>
         </div>
         <div class="result-actions">
-            <button id="retryBtn">Làm lại</button>
+            <button id="retryBtn">Làm lại tất cả</button>
             ${btnRetryWrong}
             <button id="exitBtn" class="ghost">Quay lại trang chủ</button>
         </div>
     </div>`;
-    // Làm lại tất cả
+    
     document.getElementById('retryBtn').addEventListener('click', () => {
         parsed = JSON.parse(JSON.stringify(originalParsed));
         currentIndex = 0;
         userAnswers = {};
         renderQuestion(0);
+        saveState();
     });
-    // Làm lại câu sai
+    
     if (wrongIndexes.length > 0) {
         document.getElementById('retryWrongBtn').addEventListener('click', () => {
-            // Lấy quiz gốc đầy đủ để không bị mất thông tin
-            let fullQuiz = (originalParsed && Array.isArray(originalParsed)) ? originalParsed : parsed;
-            // lấy mảng các object gốc dựa vào chỉ số
+            let fullQuiz = originalParsed || parsed;
             parsed = wrongIndexes.map(idx => JSON.parse(JSON.stringify(fullQuiz[idx])));
             currentIndex = 0;
             userAnswers = {};
             renderQuestion(0);
-            log('Làm lại các câu bạn đã làm sai.');
+            saveState();
         });
     }
     document.getElementById('exitBtn').addEventListener('click', () => {
         document.body.classList.remove('fullscreen-quiz');
         document.querySelector('.right-col').style.display = 'none';
         preview.innerHTML = `<div style="color:var(--muted);font-size:13px">Chưa có dữ liệu.</div>`;
-        // restore lại parsed gốc để làm lại đầy đủ
         parsed = originalParsed ? JSON.parse(JSON.stringify(originalParsed)) : parsed;
+        // Khi exit thì xóa trạng thái làm dở, nhưng giữ lại JSON đã parse
+        const state = { parsed, originalParsed, currentIndex:0, userAnswers:{}, isQuizActive: false };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     });
 }
-// ---- END sửa đổi hiển thị chi tiết đáp án khi sai && làm lại câu sai ---
 
-const style = document.createElement('style');
-style.textContent = `.choice.selected { background-color: rgba(15, 98, 254, 0.1); border-color: var(--accent); }`;
-document.head.appendChild(style);
+previewJSONBtn.addEventListener('click', () => {
+    jsonSection.style.display = jsonSection.style.display === 'none' ? 'block' : 'none';
+});
+validateBtn.addEventListener('click', () => {
+    if (parsed.length === 0) return alert('Chưa xử lý nội dung!');
+    const ansMap = parseAnswers(answersInput.value);
+    const issues = [];
+    parsed.forEach((p, i) => {
+        if (!p.question || p.question.length < 5) issues.push(`Câu ${i + 1}: câu hỏi ngắn`);
+        if (p.choices && p.choices.length > 0) {
+            const keys = p.choices.map((c) => c.key);
+            if (ansMap[i] && !keys.includes(ansMap[i])) issues.push(`Câu ${i + 1}: đáp án ${ansMap[i]} không có trong lựa chọn`);
+        }
+    });
+    log(issues.length === 0 ? 'Không phát hiện lỗi lớn.' : issues.join('\n'));
+});
+downloadJsonBtn.addEventListener('click', () => {
+    if (jsonOut.textContent.trim() === '') return alert('Chưa có JSON');
+    const blob = new Blob([jsonOut.textContent], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'quiz.json';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+shareQuizBtn.addEventListener('click', () => {
+    if (parsed.length === 0) { alert('Chưa có quiz để chia sẻ!'); return; }
+    const json = JSON.stringify(parsed);
+    const encoded = btoa(unescape(encodeURIComponent(json)));
+    const link = `${location.origin}${location.pathname}?d=${encoded}`;
+    navigator.clipboard.writeText(link).then(() => log('✅ Đã sao chép link chia sẻ!')).catch(err => log('❌ Lỗi copy link: ' + err));
+});
+
+// KHỞI ĐỘNG: KIỂM TRA LINK CHIA SẺ HOẶC RESTORE DỮ LIỆU CŨ
 window.addEventListener('load', () => {
-    const params = new URLSearchParams(window.location.search);
-    const quizParam = params.get('quiz');
-    if (quizParam) {
+    const params = new URLSearchParams(location.search);
+    const encoded = params.get('d');
+    if (encoded) {
         try {
-            parsed = JSON.parse(decodeURIComponent(quizParam));
+            const decoded = decodeURIComponent(escape(atob(encoded)));
+            parsed = JSON.parse(decoded);
             document.querySelector('.right-col').style.display = 'block';
             document.body.classList.add('fullscreen-quiz');
             currentIndex = 0;
             userAnswers = {};
             originalParsed = JSON.parse(JSON.stringify(parsed));
             renderQuestion(currentIndex);
-        } catch (e) {
-            console.error('Invalid quiz data', e);
-        }
+            log('📦 Đã tải quiz từ link chia sẻ.');
+        } catch (e) { console.error('❌ Lỗi giải mã quiz', e); }
+    } else {
+        // KHÔNG CÓ LINK CHIA SẺ => THỬ RESTORE DỮ LIỆU CŨ
+        restoreState();
     }
 });
 </script>
